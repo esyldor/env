@@ -3,6 +3,7 @@
 ENVFILE="/etc/environment"
 PTYPE="http https"
 APTFILE="/etc/apt/apt.conf.d/95proxies"
+TMP="/tmp"
 
 function usage {
   echo -ne "\n"
@@ -35,13 +36,18 @@ function setProxy {
     hpvar=`echo $pvar | tr [a-z] [A-Z]`
     pvar="$pvar=${ptype}://$p:$q"
     hpvar="$hpvar=${ptype}://$p:$q"
-    echo $pvar >> ${ENVFILE}
-    echo $hpvar >> ${ENVFILE}
-    echo "Acquire::${ptype}::proxy \"${ptype}://${p}:${q}\";" >> ${APTFILE}
+    echo $pvar >> ${TMP}/pxyenv
+    echo $hpvar >> ${TMP}/pxyenv
+    echo "Acquire::${ptype}::proxy \"${ptype}://${p}:${q}\";" >> ${TMP}/pxyapt
   done
   gsettings set org.gnome.system.proxy mode 'manual' 
   gsettings set org.gnome.system.proxy.http host $p
   gsettings set org.gnome.system.proxy.http port $q
+}
+
+function applyProxy {
+  sudo cp ${TMP}/pxyenv ${ENVFILE}
+  sudo cp ${TMP}/pxyapt ${APTFILE}
 }
 
 if [ $# -lt 1 ]; then
@@ -80,34 +86,34 @@ if [ "$op" == "s" ] || [ "$op" == "c" ]; then
     [ -n $var ] && unset $var
   done
 
-  sed -i 's/^\(.*proxy\|.*PROXY\)=.*//' ${ENVFILE}
-  sed -i '/^$/d' ${ENVFILE}
+  sed -e 's/^\(.*proxy\|.*PROXY\)=.*//' ${ENVFILE} | sed '/^$/d' > ${TMP}/pxyenv
   gsettings reset-recursively org.gnome.system.proxy
-  rm -f ${APTFILE}
+  echo "# APT proxies file created by setproxy.sh" > ${TMP}/pxyapt
 
   if [ "$op" == "s" ]; then
     setProxy $proxy $port
   fi
+  applyProxy
 fi
 
 if [ $op == "t" ]; then
   nc=`grep -c '^[^#]*\(proxy\|PROXY\)' ${ENVFILE}`
   c=`grep -c '^#.*\(proxy\|PROXY\)' ${ENVFILE}`
-  echo "$c -- $nc"
   if [ $nc -eq 0 ] && [ $c -eq 0 ]; then
-    echo "Proxy not set. use '-s'"
+    echo "Proxy address not set. use '-s'"
     exit
   fi
   if [ $c -eq 0 ]; then
-    sed -i 's/^\([^#]*proxy=\|.*PROXY=\)/#\1/g' ${ENVFILE}
+    sed -e 's/^\([^#]*proxy=\|.*PROXY=\)/#\1/g' ${ENVFILE} > ${TMP}/pxyenv
     gsettings reset-recursively org.gnome.system.proxy
-    rm -f ${APTFILE}
+    echo "# APT proxies file created by setproxy.sh" > ${TMP}/pxyapt
   else
     getProxy http
-    sed -i 's/^\(.*proxy\|.*PROXY\)=.*//' ${ENVFILE}
-    sed -i '/^$/d' ${ENVFILE}
+    sed -e 's/^\(.*proxy\|.*PROXY\)=.*//' ${ENVFILE} > ${TMP}/pxyenv
+    sed -e '/^$/d' ${ENVFILE} > ${TMP}/pxyenv
     setProxy $b $c
   fi
+  applyProxy
 fi
 
 if [ $op == "g" ]; then
